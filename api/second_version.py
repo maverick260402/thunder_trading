@@ -82,13 +82,6 @@ SUPERTREND_LENGTH = 10
 SUPERTREND_FACTOR = 2.0  
 #status_message = None  # Global variable to store status messages
 
-# Thread safety locks for global variables
-import threading
-position_lock = threading.RLock()      # For active_position, entry_price
-trade_data_lock = threading.RLock()    # For trade_history, total_profit_loss, counters
-config_lock = threading.RLock()        # For trading configuration variables
-auth_lock = threading.RLock()          # For authentication token management
-
 # Define IST timezone
 IST = pytz.timezone('Asia/Kolkata')
 
@@ -96,158 +89,6 @@ IST = pytz.timezone('Asia/Kolkata')
 def get_ist_now():
     """Returns current time in Indian Standard Time"""
     return datetime.datetime.now(IST).replace(tzinfo=None)
-
-# Trading holidays for 2025 (Indian stock market)
-TRADING_HOLIDAYS_2025 = [
-    "2025-02-26",  # Mahashivratri
-    "2025-03-14",  # Holi
-    "2025-03-31",  # Id-Ul-Fitr (Ramadan Eid)
-    "2025-04-10",  # Shri Mahavir Jayanti
-    "2025-04-14",  # Dr. Baba Saheb Ambedkar Jayanti
-    "2025-04-18",  # Good Friday
-    "2025-05-01",  # Maharashtra Day
-    "2025-08-15",  # Independence Day / Parsi New Year
-    "2025-08-27",  # Shri Ganesh Chaturthi
-    "2025-10-02",  # Mahatma Gandhi Jayanti/Dussehra
-    "2025-10-21",  # Diwali Laxmi Pujan
-    "2025-10-22",  # Balipratipada
-    "2025-11-05",  # Prakash Gurpurb Sri Guru Nanak Dev
-    "2025-12-25",  # Christmas
-]
-
-def is_trading_holiday(date):
-    """Check if a given date is a trading holiday"""
-    if isinstance(date, datetime.datetime):
-        date_str = date.strftime('%Y-%m-%d')
-    elif isinstance(date, datetime.date):
-        date_str = date.strftime('%Y-%m-%d')
-    else:
-        date_str = str(date)
-    
-    return date_str in TRADING_HOLIDAYS_2025
-
-def is_trading_day(date):
-    """Check if a given date is a trading day (not weekend and not holiday)"""
-    if isinstance(date, datetime.datetime):
-        weekday = date.weekday()
-        date_obj = date.date()
-    elif isinstance(date, datetime.date):
-        weekday = date.weekday()
-        date_obj = date
-    else:
-        # Assume it's a string, try to parse it
-        try:
-            parsed_date = datetime.datetime.strptime(str(date), '%Y-%m-%d').date()
-            weekday = parsed_date.weekday()
-            date_obj = parsed_date
-        except ValueError:
-            logger.error(f"❌ Unable to parse date: {date}")
-            return False
-    
-    # Check if it's a weekend (Saturday=5, Sunday=6)
-    if weekday >= 5:
-        return False
-    
-    # Check if it's a trading holiday
-    if is_trading_holiday(date_obj):
-        return False
-    
-    return True
-
-def get_last_trading_day(reference_date=None):
-    """Get the last trading day before the reference date (or current date if None)"""
-    if reference_date is None:
-        reference_date = get_ist_now().date()
-    elif isinstance(reference_date, datetime.datetime):
-        reference_date = reference_date.date()
-    
-    # Start from the day before the reference date
-    check_date = reference_date - datetime.timedelta(days=1)
-    
-    # Keep going back until we find a trading day
-    max_days_back = 10  # Safety limit to prevent infinite loop
-    days_checked = 0
-    
-    while days_checked < max_days_back:
-        if is_trading_day(check_date):
-            logger.info(f"📅 Last trading day found: {check_date} (checked {days_checked + 1} days back)")
-            return check_date
-        
-        check_date = check_date - datetime.timedelta(days=1)
-        days_checked += 1
-    
-    logger.error(f"❌ Could not find a trading day within {max_days_back} days before {reference_date}")
-    return None
-
-# Thread-safe wrapper functions for global variable access
-def safe_get_position_info():
-    """Thread-safe getter for position information"""
-    with position_lock:
-        return {
-            'active_position': active_position,
-            'entry_price': entry_price,
-            'current_trade_entry_price': current_trade_entry_price,
-            'current_trade_entry_time': current_trade_entry_time
-        }
-
-def safe_set_position(position, price, entry_time=None):
-    """Thread-safe setter for position information"""
-    global active_position, entry_price, current_trade_entry_price, current_trade_entry_time
-    with position_lock:
-        active_position = position
-        entry_price = price
-        current_trade_entry_price = price
-        if entry_time:
-            current_trade_entry_time = entry_time
-
-def safe_clear_position():
-    """Thread-safe position clearing"""
-    global active_position, entry_price, current_trade_entry_price, current_trade_entry_time
-    with position_lock:
-        active_position = None
-        entry_price = None
-        current_trade_entry_price = None
-        current_trade_entry_time = None
-
-def safe_get_trade_stats():
-    """Thread-safe getter for trade statistics"""
-    with trade_data_lock:
-        return {
-            'total_profit_loss': total_profit_loss,
-            'trade_count': trade_count,
-            'winning_trades': winning_trades,
-            'losing_trades': losing_trades,
-            'trade_history': trade_history.copy()  # Return a copy to prevent external modification
-        }
-
-def safe_add_trade(trade_info):
-    """Thread-safe trade addition"""
-    global trade_history, total_profit_loss, trade_count, winning_trades, losing_trades
-    with trade_data_lock:
-        trade_history.append(trade_info)
-        total_profit_loss += trade_info.get('profit_loss', 0)
-        trade_count += 1
-        if trade_info.get('profit_loss', 0) > 0:
-            winning_trades += 1
-        else:
-            losing_trades += 1
-
-def safe_update_auth_token(token, new_headers, auth_timestamp):
-    """Thread-safe authentication token update"""
-    global auth_token, headers, auth_time
-    with auth_lock:
-        auth_token = token
-        headers = new_headers
-        auth_time = auth_timestamp
-
-def safe_get_auth_info():
-    """Thread-safe getter for authentication information"""
-    with auth_lock:
-        return {
-            'auth_token': auth_token,
-            'headers': headers.copy() if headers else None,
-            'auth_time': auth_time
-        }
 
 # Candle configuration
 CANDLE_SIZE_SECONDS = {
@@ -321,17 +162,11 @@ def get_auth_token(force_new=False):
         
         response_data = response.json()
         if response_data.get("status") and response_data.get("data"):
-            # Thread-safe authentication token update
-            token = response_data["data"]["jwtToken"]
-            new_headers = headers.copy()
-            new_headers["Authorization"] = f"Bearer {token}"
-            timestamp = get_ist_now()
-            
-            # Use thread-safe function to update globals
-            safe_update_auth_token(token, new_headers, timestamp)
-            
+            auth_token = response_data["data"]["jwtToken"]
+            headers["Authorization"] = f"Bearer {auth_token}"
+            auth_time = get_ist_now()
             logger.info("✅ Authentication successful, token obtained")
-            return new_headers
+            return headers
         else:
             logger.error(f"❌ Login failed: {response_data}")
             return None
@@ -548,9 +383,9 @@ def fetch_historical_stock_data(symbol_token, exchange, max_retries=3, retry_del
         market_open = datetime.time(9, 15)
         market_close = datetime.time(15, 30)
         
-        # Determine if market is currently open (using holiday-aware logic)
-        market_is_open = is_market_open()
-        logger.info(f"🕒 Market status check - Date: {today}, Current time: {current_time}, Market open: {market_is_open}")
+        # Determine if market is currently open
+        market_is_open = (now.weekday() < 5) and (market_open <= current_time <= market_close)
+        logger.info(f"🕒 Market status check - Weekday: {now.weekday()}, Current time: {current_time}, Market open: {market_is_open}")
         
         # Initialize DataFrame for current session
         current_session_data = None
@@ -612,22 +447,16 @@ def fetch_historical_stock_data(symbol_token, exchange, max_retries=3, retry_del
             else:
                 logger.info(f"⚠️ Current session has only {len(current_session_data)} candles, fetching previous session data...")
             
-            # Get previous session data using holiday-aware logic
-            prev_trading_date = get_last_trading_day(today)
-            
-            if prev_trading_date is None:
-                logger.error("❌ Could not determine previous trading day, falling back to simple date calculation")
-                # Fallback to the old logic if holiday detection fails
+            # Get previous session data
+            days_to_subtract = 1
+            if now.weekday() == 5:  # Saturday
                 days_to_subtract = 1
-                if now.weekday() == 5:  # Saturday
-                    days_to_subtract = 1
-                elif now.weekday() == 6:  # Sunday
-                    days_to_subtract = 2
-                elif now.weekday() == 0:  # Monday
-                    days_to_subtract = 3
-                prev_trading_date = today - datetime.timedelta(days=days_to_subtract)
-            else:
-                logger.info(f"📅 Using holiday-aware previous trading date: {prev_trading_date}")
+            elif now.weekday() == 6:  # Sunday
+                days_to_subtract = 2
+            elif now.weekday() == 0:  # Monday
+                days_to_subtract = 3
+            
+            prev_trading_date = today - datetime.timedelta(days=days_to_subtract)
             prev_from_date = prev_trading_date.strftime("%Y-%m-%d") + " 09:15"
             prev_to_date = prev_trading_date.strftime("%Y-%m-%d") + " 15:30"
             
@@ -1333,89 +1162,75 @@ def apply_trading_strategy(df, trading_symbol_of_underlying, quantity_of_underly
             logger.info(f"↔️ Signal for underlying '{trading_symbol_of_underlying}' has not changed. No new action on underlying position.") #
 
 def close_position_basic(latest_candle, trading_symbol, quantity):
-    """Close existing position (Thread-safe version)"""
+    """Close existing position"""
     global active_position, entry_price
     global trade_history, total_profit_loss, current_trade_entry_price, current_trade_entry_time
     global trade_count, winning_trades, losing_trades
     
-    # Thread-safe: Get position info atomically
-    position_info = safe_get_position_info()
-    current_position = position_info['active_position']
-    current_entry_price = position_info['entry_price']
-    current_entry_time = position_info['current_trade_entry_time']
-    
-    if not current_position or current_entry_price is None:
-        print("⚠️ No active position to close")
-        return
-    
     exit_price = latest_candle['close']
     
-    if current_position == "long":
-        trade_profit = (exit_price - current_entry_price) * quantity
-        trade_profit_pct = (exit_price / current_entry_price - 1) * 100
+    if active_position == "long":
+        trade_profit = (exit_price - entry_price) * quantity
+        trade_profit_pct = (exit_price / entry_price - 1) * 100
         order_type = "SELL"
         position_type = "LONG"
-        print(f"📉 Closing LONG position (Entry: {current_entry_price}, Exit: {exit_price})")
+        print(f"📉 Closing LONG position (Entry: {entry_price}, Exit: {exit_price})")
     else:  # short position
-        trade_profit = (current_entry_price - exit_price) * quantity
-        trade_profit_pct = (current_entry_price / exit_price - 1) * 100
+        trade_profit = (entry_price - exit_price) * quantity
+        trade_profit_pct = (entry_price / exit_price - 1) * 100
         order_type = "BUY"
         position_type = "SHORT"
-        print(f"📈 Closing SHORT position (Entry: {current_entry_price}, Exit: {exit_price})")
+        print(f"📈 Closing SHORT position (Entry: {entry_price}, Exit: {exit_price})")
     
-    result_emoji = "✅" if trade_profit > 0 else "❌"
+    total_profit_loss += trade_profit
+    trade_count += 1
+    
+    if trade_profit > 0:
+        winning_trades += 1
+        result_emoji = "✅"
+    else:
+        losing_trades += 1
+        result_emoji = "❌"
     
     trade_info = {
         "type": position_type,
-        "entry_time": current_entry_time,
-        "entry_price": current_entry_price,
+        "entry_time": current_trade_entry_time,
+        "entry_price": entry_price,
         "exit_time": latest_candle.name,
         "exit_price": exit_price,
         "quantity": quantity,
         "profit_loss": trade_profit,
         "profit_loss_pct": trade_profit_pct
     }
+    trade_history.append(trade_info)
     
-    # Thread-safe: Add trade atomically
-    safe_add_trade(trade_info)
-    
-    # Get updated stats for display
-    stats = safe_get_trade_stats()
-    
-    print(f"🔄 Closing {current_position} position at {exit_price} at {latest_candle.name}")
+    print(f"🔄 Closing {active_position} position at {exit_price} at {latest_candle.name}")
     print(f"{result_emoji} P&L: ₹{trade_profit:.2f} ({trade_profit_pct:.2f}%)")
-    print(f"💰 Total P&L: ₹{stats['total_profit_loss']:.2f} | Trades: {stats['trade_count']} | Win/Loss: {stats['winning_trades']}/{stats['losing_trades']}")
+    print(f"💰 Total P&L: ₹{total_profit_loss:.2f} | Trades: {trade_count} | Win/Loss: {winning_trades}/{losing_trades}")
     
     execute_order_basic(trading_symbol, quantity, order_type)
-    
-    # Thread-safe: Clear position atomically
-    safe_clear_position()
+    active_position = None
     print("🔄 Position closed and reset")
 
 def open_position_basic(latest_candle, current_signal, trading_symbol, quantity):
-    """Open new position based on signal (Thread-safe version)"""
+    """Open new position based on signal"""
     global active_position, entry_price
     global current_trade_entry_price, current_trade_entry_time
     
-    entry_price_value = latest_candle['close']
-    entry_time = latest_candle.name
+    entry_price = latest_candle['close']
+    current_trade_entry_price = entry_price
+    current_trade_entry_time = latest_candle.name
     
     if current_signal == 'buy':
-        print(f"📈 Opening BUY position at {entry_price_value}")
+        print(f"📈 Opening BUY position at {entry_price}")
         execute_order_basic(trading_symbol, quantity, "BUY")
-        position_type = "long"
+        active_position = "long"
     elif current_signal == 'sell':
-        print(f"📉 Opening SELL position at {entry_price_value}")
+        print(f"📉 Opening SELL position at {entry_price}")
         execute_order_basic(trading_symbol, quantity, "SELL")
-        position_type = "short"
-    else:
-        print(f"⚠️ Unknown signal: {current_signal}")
-        return
+        active_position = "short"
     
-    # Thread-safe: Set position atomically
-    safe_set_position(position_type, entry_price_value, entry_time)
-    
-    print(f"🆕 New {position_type} position opened at {entry_price_value}")
+    print(f"🆕 New {active_position} position opened at {entry_price}")
 
 def close_position(latest_candle, underlying_symbol_arg, num_lots_arg_on_call): # num_lots_arg_on_call might not be used if active_pos has all info
     """Close existing active option position."""
@@ -1614,35 +1429,23 @@ def save_trade_history():
         logger.debug(traceback.format_exc())
 
 def is_market_open():
-    """Check if market is currently open (includes holiday detection)"""
+    """Check if market is currently open"""
     now = get_ist_now()
     current_time = now.time()
-    current_date = now.date()
     
-    logger.debug(f"\n🕒 Checking market hours - Current time: {current_time}, Date: {current_date}")
+    logger.debug(f"\n🕒 Checking market hours - Current time: {current_time}")
     
-    # First check if today is a trading day (not weekend and not holiday)
-    if not is_trading_day(current_date):
-        if now.weekday() >= 5:
-            logger.info("📅 Weekend detected - Market closed")
-        elif is_trading_holiday(current_date):
-            logger.info(f"🏖️ Trading holiday detected ({current_date}) - Market closed")
-        else:
-            logger.info("📅 Non-trading day detected - Market closed")
+    # Check if it's a weekday
+    if now.weekday() >= 5:  # Saturday or Sunday
+        logger.info("📅 Weekend detected - Market closed")
         return False
     
-    # Check market hours (only if it's a trading day)
+    # Check market hours
     market_start = datetime.time(9, 15)
     market_end = datetime.time(15, 30)
     
     market_status = market_start <= current_time <= market_end
-    status_text = 'OPEN' if market_status else 'CLOSED'
-    
-    if market_status:
-        logger.info(f"🏛 Market status: {status_text} (Trading day with time {current_time} within market hours)")
-    else:
-        logger.info(f"🏛 Market status: {status_text} (Trading day but time {current_time} outside market hours {market_start}-{market_end})")
-    
+    logger.info(f"🏛 Market status: {'OPEN' if market_status else 'CLOSED'}")
     return market_status
 
 # Function to display DataFrames with Supertrend information in a user-friendly format
