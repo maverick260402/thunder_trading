@@ -4,7 +4,8 @@ Jinja2==3.1.6             # Template rendering
 MarkupSafe==3.0.2         # Jinja2 dependency
 numpy==1.26.4             # Numerical operations (fixed for pandas_ta compatibility)
 pandas==2.2.3             # Data manipulation
-pandas_ta==0.3.14b0       # Supertrend indicator
+#pandas_ta==0.3.14b0       # Supertrend indicator
+ft-pandas-ta>=0.3.15 
 python-dateutil==2.9.0.post0  # Pandas datetime support
 pytz==2025.1              # Timezone support for pandas
 tzdata==2025.1            # Timezone data
