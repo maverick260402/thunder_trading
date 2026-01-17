@@ -1,116 +1,215 @@
 #!/usr/bin/env python3
 """
-Test script for trading holiday detection logic
+Test script for holiday handling logic in second_version.py
+Tests the is_trading_holiday, is_trading_day, and get_last_trading_day functions
 """
+
 import sys
+import os
 import datetime
-from pathlib import Path
 
-# Add the api directory to the path so we can import our functions
-sys.path.append(str(Path(__file__).parent / "api"))
+# Add the api directory to the path so we can import second_version
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'api'))
 
-from second_version import is_trading_holiday, is_trading_day, get_last_trading_day
+# Import the functions we want to test
+from second_version import (
+    is_trading_holiday,
+    is_trading_day,
+    get_last_trading_day,
+    TRADING_HOLIDAYS_2026
+)
 
-def test_holiday_detection():
-    """Test holiday detection with known dates"""
-    print("🧪 Testing Holiday Detection Logic")
-    print("=" * 50)
-    
-    # Test cases: (date_string, expected_is_holiday, description)
+def test_is_trading_holiday():
+    """Test the is_trading_holiday function"""
+    print("\n" + "="*60)
+    print("Testing is_trading_holiday()")
+    print("="*60)
+
     test_cases = [
-        ("2025-02-26", True, "Mahashivratri (Wednesday)"),
-        ("2025-03-14", True, "Holi (Friday)"),
-        ("2025-03-15", False, "Day after Holi (Saturday - weekend)"),
-        ("2025-03-13", False, "Day before Holi (Thursday - normal trading day)"),
-        ("2025-04-18", True, "Good Friday"),
-        ("2025-04-19", False, "Saturday after Good Friday"),
-        ("2025-04-21", False, "Monday after Good Friday weekend"),
-        ("2025-12-25", True, "Christmas (Thursday)"),
-        ("2025-01-15", False, "Normal trading day"),
-        ("2025-06-15", False, "Normal Sunday (weekend)"),
+        # Format: (date, expected_result, description)
+        (datetime.date(2026, 1, 15), True, "Municipal Election - Maharashtra"),
+        (datetime.date(2026, 1, 26), True, "Republic Day"),
+        (datetime.date(2026, 3, 3), True, "Holi"),
+        (datetime.date(2026, 12, 25), True, "Christmas"),
+        (datetime.date(2026, 1, 20), False, "Regular Tuesday"),
+        (datetime.date(2026, 2, 10), False, "Regular Tuesday"),
+        (datetime.date(2026, 5, 15), False, "Regular Friday"),
+        # Test with datetime objects
+        (datetime.datetime(2026, 1, 26, 10, 30), True, "Republic Day (datetime)"),
+        # Test with string
+        ("2026-01-26", True, "Republic Day (string)"),
     ]
-    
-    print("Holiday Detection Tests:")
-    for date_str, expected_holiday, description in test_cases:
-        actual_holiday = is_trading_holiday(date_str)
-        status = "✅" if actual_holiday == expected_holiday else "❌"
-        print(f"{status} {date_str} ({description}): Expected {expected_holiday}, Got {actual_holiday}")
-    
-    print("\nTrading Day Tests:")
-    trading_day_cases = [
-        ("2025-02-26", False, "Mahashivratri (holiday)"),
-        ("2025-02-25", True, "Day before Mahashivratri (Tuesday)"),
-        ("2025-02-27", True, "Day after Mahashivratri (Thursday)"),
-        ("2025-03-15", False, "Saturday (weekend)"),
-        ("2025-03-16", False, "Sunday (weekend)"),
-        ("2025-03-17", True, "Monday (normal trading day)"),
-        ("2025-04-18", False, "Good Friday (holiday)"),
-        ("2025-04-19", False, "Saturday after Good Friday"),
-        ("2025-04-21", True, "Monday after Good Friday weekend"),
-    ]
-    
-    for date_str, expected_trading, description in trading_day_cases:
-        actual_trading = is_trading_day(date_str)
-        status = "✅" if actual_trading == expected_trading else "❌"
-        print(f"{status} {date_str} ({description}): Expected {expected_trading}, Got {actual_trading}")
 
-def test_last_trading_day():
-    """Test getting the last trading day with various scenarios"""
-    print("\n" + "=" * 50)
-    print("🧪 Testing Last Trading Day Logic")
-    print("=" * 50)
-    
-    # Test cases: (reference_date, expected_scenarios)
-    test_scenarios = [
-        ("2025-02-27", "Should skip Mahashivratri (2025-02-26) and return 2025-02-25"),
-        ("2025-03-15", "Should skip Holi (2025-03-14) and return 2025-03-13"),
-        ("2025-03-17", "Should skip weekend and return 2025-03-14... wait, that's Holi! Should return 2025-03-13"),
-        ("2025-04-21", "Should skip Good Friday (2025-04-18) and weekend, return 2025-04-17"),
-        ("2025-12-26", "Should skip Christmas (2025-12-25) and return 2025-12-24"),
-        ("2025-01-15", "Normal Wednesday, should return 2025-01-14 (Tuesday)"),
-    ]
-    
-    for ref_date_str, scenario in test_scenarios:
-        ref_date = datetime.datetime.strptime(ref_date_str, '%Y-%m-%d').date()
-        last_trading = get_last_trading_day(ref_date)
-        
-        print(f"\n📅 Reference Date: {ref_date_str}")
-        print(f"   Scenario: {scenario}")
-        print(f"   Result: {last_trading}")
-        
-        # Verify the result is actually a trading day
-        if last_trading:
-            is_valid = is_trading_day(last_trading)
-            status = "✅" if is_valid else "❌"
-            print(f"   {status} Is the result a valid trading day? {is_valid}")
+    passed = 0
+    failed = 0
+
+    for date, expected, description in test_cases:
+        result = is_trading_holiday(date)
+        status = "✅ PASS" if result == expected else "❌ FAIL"
+        if result == expected:
+            passed += 1
         else:
-            print(f"   ❌ Failed to find a trading day!")
+            failed += 1
+        print(f"{status}: {date} -> {result} (expected {expected}) - {description}")
 
-def test_edge_cases():
-    """Test edge cases around holidays"""
-    print("\n" + "=" * 50)
-    print("🧪 Testing Edge Cases")
-    print("=" * 50)
-    
-    # Test a scenario where we have multiple consecutive non-trading days
-    print("Testing scenario after a long weekend with holiday:")
-    
-    # Holi 2025 is on Friday March 14, followed by weekend
-    # So March 17 (Monday) should go back to March 13 (Thursday)
-    monday_after_holi = datetime.date(2025, 3, 17)
-    last_trading = get_last_trading_day(monday_after_holi)
-    
-    print(f"Monday after Holi weekend: {monday_after_holi}")
-    print(f"Expected last trading day: 2025-03-13 (Thursday before Holi)")
-    print(f"Actual result: {last_trading}")
-    
-    expected = datetime.date(2025, 3, 13)
-    status = "✅" if last_trading == expected else "❌"
-    print(f"{status} Correct result: {last_trading == expected}")
+    print(f"\n📊 Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_is_trading_day():
+    """Test the is_trading_day function"""
+    print("\n" + "="*60)
+    print("Testing is_trading_day()")
+    print("="*60)
+
+    test_cases = [
+        # Format: (date, expected_result, description)
+        # Regular weekdays (not holidays)
+        (datetime.date(2026, 1, 20), True, "Regular Tuesday"),
+        (datetime.date(2026, 2, 10), True, "Regular Tuesday"),
+        (datetime.date(2026, 5, 15), True, "Regular Friday"),
+        # Weekends
+        (datetime.date(2026, 1, 17), False, "Saturday"),
+        (datetime.date(2026, 1, 18), False, "Sunday"),
+        (datetime.date(2026, 1, 24), False, "Saturday"),
+        (datetime.date(2026, 1, 25), False, "Sunday"),
+        # Holidays (weekdays)
+        (datetime.date(2026, 1, 15), False, "Municipal Election (Thursday)"),
+        (datetime.date(2026, 1, 26), False, "Republic Day (Monday)"),
+        (datetime.date(2026, 3, 3), False, "Holi (Tuesday)"),
+        (datetime.date(2026, 4, 3), False, "Good Friday"),
+        (datetime.date(2026, 12, 25), False, "Christmas (Friday)"),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for date, expected, description in test_cases:
+        result = is_trading_day(date)
+        status = "✅ PASS" if result == expected else "❌ FAIL"
+        if result == expected:
+            passed += 1
+        else:
+            failed += 1
+        weekday_name = date.strftime("%A")
+        print(f"{status}: {date} ({weekday_name}) -> {result} (expected {expected}) - {description}")
+
+    print(f"\n📊 Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_get_last_trading_day():
+    """Test the get_last_trading_day function"""
+    print("\n" + "="*60)
+    print("Testing get_last_trading_day()")
+    print("="*60)
+
+    test_cases = [
+        # Format: (reference_date, expected_result, description)
+        # Simple cases (previous day is a trading day)
+        (datetime.date(2026, 1, 21), datetime.date(2026, 1, 20), "Tuesday -> Monday"),
+        (datetime.date(2026, 2, 11), datetime.date(2026, 2, 10), "Wednesday -> Tuesday"),
+
+        # Monday -> skip weekend to Friday
+        (datetime.date(2026, 1, 19), datetime.date(2026, 1, 16), "Monday -> Friday (skip weekend)"),
+
+        # After a long weekend with holiday
+        # Jan 26 (Monday) is Republic Day holiday, so Jan 27 (Tuesday) should go back to Jan 23 (Friday)
+        (datetime.date(2026, 1, 27), datetime.date(2026, 1, 23), "Tuesday after Republic Day -> Friday"),
+
+        # After Holi (Mar 3, Tuesday)
+        (datetime.date(2026, 3, 4), datetime.date(2026, 3, 2), "Wednesday after Holi -> Monday"),
+
+        # Regular Tuesday (previous day is Monday, a trading day)
+        (datetime.date(2026, 1, 20), datetime.date(2026, 1, 19), "Tuesday -> Monday"),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for reference_date, expected, description in test_cases:
+        result = get_last_trading_day(reference_date)
+        status = "✅ PASS" if result == expected else "❌ FAIL"
+        if result == expected:
+            passed += 1
+        else:
+            failed += 1
+        print(f"{status}: {reference_date} -> {result} (expected {expected}) - {description}")
+
+    print(f"\n📊 Results: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_holiday_list_validity():
+    """Verify that all holidays in the list are on valid dates"""
+    print("\n" + "="*60)
+    print("Testing TRADING_HOLIDAYS_2026 validity")
+    print("="*60)
+
+    print(f"Total holidays in 2026: {len(TRADING_HOLIDAYS_2026)}")
+    print("\nVerifying each holiday:")
+
+    all_valid = True
+    weekend_holidays = []
+
+    for holiday_str in TRADING_HOLIDAYS_2026:
+        try:
+            holiday_date = datetime.datetime.strptime(holiday_str, '%Y-%m-%d').date()
+            weekday_name = holiday_date.strftime("%A")
+
+            # Check if it's a weekend
+            if holiday_date.weekday() >= 5:
+                weekend_holidays.append((holiday_str, weekday_name))
+                print(f"⚠️  {holiday_str} ({weekday_name}) - Holiday on weekend!")
+            else:
+                print(f"✅ {holiday_str} ({weekday_name}) - Valid")
+        except ValueError as e:
+            print(f"❌ {holiday_str} - Invalid date format: {e}")
+            all_valid = False
+
+    if weekend_holidays:
+        print(f"\n⚠️  Note: {len(weekend_holidays)} holidays fall on weekends (this is okay but unusual)")
+
+    print(f"\n📊 Results: {'All dates valid' if all_valid else 'Some dates invalid'}")
+    return all_valid
+
+
+def main():
+    """Run all tests"""
+    print("\n" + "="*60)
+    print("HOLIDAY LOGIC TEST SUITE")
+    print("="*60)
+
+    results = []
+
+    # Run all tests
+    results.append(("Holiday List Validity", test_holiday_list_validity()))
+    results.append(("is_trading_holiday()", test_is_trading_holiday()))
+    results.append(("is_trading_day()", test_is_trading_day()))
+    results.append(("get_last_trading_day()", test_get_last_trading_day()))
+
+    # Summary
+    print("\n" + "="*60)
+    print("TEST SUMMARY")
+    print("="*60)
+
+    all_passed = True
+    for test_name, passed in results:
+        status = "✅ PASSED" if passed else "❌ FAILED"
+        print(f"{status}: {test_name}")
+        if not passed:
+            all_passed = False
+
+    print("="*60)
+
+    if all_passed:
+        print("\n🎉 All tests PASSED! Holiday logic is working correctly.")
+        return 0
+    else:
+        print("\n❌ Some tests FAILED. Please review the failures above.")
+        return 1
+
 
 if __name__ == "__main__":
-    test_holiday_detection()
-    test_last_trading_day()
-    test_edge_cases()
-    print("\n" + "=" * 50)
-    print("🏁 Testing Complete!")
+    exit_code = main()
+    sys.exit(exit_code)

@@ -90,6 +90,90 @@ def get_ist_now():
     """Returns current time in Indian Standard Time"""
     return datetime.datetime.now(IST).replace(tzinfo=None)
 
+# Trading holidays for 2026 (Indian stock market)
+TRADING_HOLIDAYS_2026 = [
+    "2026-01-15",  # Municipal Corporation Election - Maharashtra
+    "2026-01-26",  # Republic Day
+    "2026-03-03",  # Holi
+    "2026-03-26",  # Shri Ram Navami
+    "2026-03-31",  # Shri Mahavir Jayanti
+    "2026-04-03",  # Good Friday
+    "2026-04-14",  # Dr. Baba Saheb Ambedkar Jayanti
+    "2026-05-01",  # Maharashtra Day
+    "2026-05-28",  # Bakri Id
+    "2026-06-26",  # Muharram
+    "2026-09-14",  # Ganesh Chaturthi
+    "2026-10-02",  # Mahatma Gandhi Jayanti
+    "2026-10-20",  # Dussehra
+    "2026-11-10",  # Diwali-Balipratipada
+    "2026-11-24",  # Prakash Gurpurb Sri Guru Nanak Dev
+    "2026-12-25",  # Christmas
+]
+
+def is_trading_holiday(date):
+    """Check if a given date is a trading holiday"""
+    if isinstance(date, datetime.datetime):
+        date_str = date.strftime('%Y-%m-%d')
+    elif isinstance(date, datetime.date):
+        date_str = date.strftime('%Y-%m-%d')
+    else:
+        date_str = str(date)
+
+    return date_str in TRADING_HOLIDAYS_2026
+
+def is_trading_day(date):
+    """Check if a given date is a trading day (not weekend and not holiday)"""
+    if isinstance(date, datetime.datetime):
+        weekday = date.weekday()
+        date_obj = date.date()
+    elif isinstance(date, datetime.date):
+        weekday = date.weekday()
+        date_obj = date
+    else:
+        # Assume it's a string, try to parse it
+        try:
+            parsed_date = datetime.datetime.strptime(str(date), '%Y-%m-%d').date()
+            weekday = parsed_date.weekday()
+            date_obj = parsed_date
+        except ValueError:
+            logger.error(f"❌ Unable to parse date: {date}")
+            return False
+
+    # Check if it's a weekend (Saturday=5, Sunday=6)
+    if weekday >= 5:
+        return False
+
+    # Check if it's a trading holiday
+    if is_trading_holiday(date_obj):
+        return False
+
+    return True
+
+def get_last_trading_day(reference_date=None):
+    """Get the last trading day before the reference date (or current date if None)"""
+    if reference_date is None:
+        reference_date = get_ist_now().date()
+    elif isinstance(reference_date, datetime.datetime):
+        reference_date = reference_date.date()
+
+    # Start from the day before the reference date
+    check_date = reference_date - datetime.timedelta(days=1)
+
+    # Keep going back until we find a trading day
+    max_days_back = 10  # Safety limit to prevent infinite loop
+    days_checked = 0
+
+    while days_checked < max_days_back:
+        if is_trading_day(check_date):
+            logger.info(f"📅 Last trading day found: {check_date} (checked {days_checked + 1} days back)")
+            return check_date
+
+        check_date = check_date - datetime.timedelta(days=1)
+        days_checked += 1
+
+    logger.error(f"❌ Could not find a trading day within {max_days_back} days before {reference_date}")
+    return None
+
 # Candle configuration
 CANDLE_SIZE_SECONDS = {
     "ONE_MINUTE": 60,
@@ -382,10 +466,10 @@ def fetch_historical_stock_data(symbol_token, exchange, max_retries=3, retry_del
         # Define market hours
         market_open = datetime.time(9, 15)
         market_close = datetime.time(15, 30)
-        
-        # Determine if market is currently open
-        market_is_open = (now.weekday() < 5) and (market_open <= current_time <= market_close)
-        logger.info(f"🕒 Market status check - Weekday: {now.weekday()}, Current time: {current_time}, Market open: {market_is_open}")
+
+        # Determine if market is currently open (using holiday-aware logic)
+        market_is_open = is_market_open()
+        logger.info(f"🕒 Market status check - Date: {today}, Current time: {current_time}, Market open: {market_is_open}")
         
         # Initialize DataFrame for current session
         current_session_data = None
@@ -447,16 +531,19 @@ def fetch_historical_stock_data(symbol_token, exchange, max_retries=3, retry_del
             else:
                 logger.info(f"⚠️ Current session has only {len(current_session_data)} candles, fetching previous session data...")
             
-            # Get previous session data
-            days_to_subtract = 1
-            if now.weekday() == 5:  # Saturday
+            # Get previous session data (using holiday-aware logic)
+            prev_trading_date = get_last_trading_day(today)
+            if prev_trading_date is None:
+                # Fallback to simple logic if holiday detection fails
+                logger.warning("⚠️ Could not determine last trading day, using fallback logic")
                 days_to_subtract = 1
-            elif now.weekday() == 6:  # Sunday
-                days_to_subtract = 2
-            elif now.weekday() == 0:  # Monday
-                days_to_subtract = 3
-            
-            prev_trading_date = today - datetime.timedelta(days=days_to_subtract)
+                if now.weekday() == 5:  # Saturday
+                    days_to_subtract = 1
+                elif now.weekday() == 6:  # Sunday
+                    days_to_subtract = 2
+                elif now.weekday() == 0:  # Monday
+                    days_to_subtract = 3
+                prev_trading_date = today - datetime.timedelta(days=days_to_subtract)
             prev_from_date = prev_trading_date.strftime("%Y-%m-%d") + " 09:15"
             prev_to_date = prev_trading_date.strftime("%Y-%m-%d") + " 15:30"
             
@@ -1429,21 +1516,27 @@ def save_trade_history():
         logger.debug(traceback.format_exc())
 
 def is_market_open():
-    """Check if market is currently open"""
+    """Check if market is currently open (includes holiday detection)"""
     now = get_ist_now()
     current_time = now.time()
-    
-    logger.debug(f"\n🕒 Checking market hours - Current time: {current_time}")
-    
-    # Check if it's a weekday
-    if now.weekday() >= 5:  # Saturday or Sunday
-        logger.info("📅 Weekend detected - Market closed")
+    current_date = now.date()
+
+    logger.debug(f"\n🕒 Checking market hours - Current time: {current_time}, Date: {current_date}")
+
+    # First check if today is a trading day (not weekend and not holiday)
+    if not is_trading_day(current_date):
+        if now.weekday() >= 5:
+            logger.info("📅 Weekend detected - Market closed")
+        elif is_trading_holiday(current_date):
+            logger.info(f"🏖️ Trading holiday detected ({current_date}) - Market closed")
+        else:
+            logger.info("📅 Non-trading day detected - Market closed")
         return False
-    
-    # Check market hours
+
+    # Check market hours (only if it's a trading day)
     market_start = datetime.time(9, 15)
     market_end = datetime.time(15, 30)
-    
+
     market_status = market_start <= current_time <= market_end
     logger.info(f"🏛 Market status: {'OPEN' if market_status else 'CLOSED'}")
     return market_status
