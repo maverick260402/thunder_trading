@@ -1,0 +1,28 @@
+[Unit]
+Description=Thunder Trading Bot — Gunicorn Flask App
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=thunder
+Group=thunder
+WorkingDirectory=/home/thunder/algo_bot/thunder_trading
+Environment="PATH=/home/thunder/algo_bot/thunder_trading/venv/bin:/usr/local/bin:/usr/bin"
+EnvironmentFile=/home/thunder/algo_bot/thunder_trading/.env
+ExecStart=/home/thunder/algo_bot/thunder_trading/venv/bin/gunicorn \
+    --config /home/thunder/algo_bot/thunder_trading/gunicorn.conf.py \
+    api.app:app
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=30
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/thunder/algo_bot/thunder_trading
+
+[Install]
+WantedBy=multi-user.target

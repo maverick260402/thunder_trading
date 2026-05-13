@@ -22,24 +22,36 @@ import pandas_ta as ta
 # Fix UnicodeEncodeError for Windows
 sys.stdout.reconfigure(encoding='utf-8')
 
-# Configure logging for cloud environment (stream only, no file output)
-def setup_logger(log_level=logging.INFO):
-    """Setup and configure the logger with console output only for cloud environment"""
+# Project root (one level above the api/ folder) – used for the session logs dir
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SESSION_LOGS_DIR = os.path.join(PROJECT_ROOT, "logs")
+
+def setup_logger(log_level=logging.INFO, session_log_path=None):
+    """Setup and configure the logger with console output, optionally adding a
+    per-session file handler that writes to ``session_log_path``."""
     logger = logging.getLogger("angelone_trader")
     logger.setLevel(log_level)
-    
-    # Clear any existing handlers to avoid duplicate logs
+
     if logger.handlers:
+        for handler in logger.handlers:
+            try:
+                handler.close()
+            except Exception:
+                pass
         logger.handlers.clear()
-    
-    # Create a formatter with timestamp
+
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%Y-%m-%d %H:%M:%S')
-    
-    # Create console handler only (no file output for cloud environment)
+
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
-    
+
+    if session_log_path:
+        os.makedirs(os.path.dirname(session_log_path), exist_ok=True)
+        file_handler = logging.FileHandler(session_log_path, encoding='utf-8')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
     return logger
 
 # Initialize logger
@@ -1695,10 +1707,23 @@ def topgun(trading_symbol_param, symbol_token_param, exchange_param, quantity_pa
     global stock_name, trading_symbol, symbol_token, exchange, quantity, API_KEY, option_data, CANDLE_SIZE
     global SUPERTREND_LENGTH, SUPERTREND_FACTOR  # Add global variables for Supertrend parameters
     
-    # Setup logger with specified log level
+    # Setup logger with specified log level + a per-session log file (IST timestamp)
+    session_start_ist = get_ist_now()
+    session_timestamp = session_start_ist.strftime("%Y-%m-%d_%H-%M-%S")
+    safe_symbol = "".join(c if c.isalnum() else "_" for c in (trading_symbol_param or "session"))
+    session_log_path = os.path.join(
+        SESSION_LOGS_DIR,
+        f"session_{session_timestamp}_{safe_symbol}.log",
+    )
+
     global logger
-    logger = setup_logger(log_level)
-    
+    logger = setup_logger(log_level, session_log_path=session_log_path)
+
+    logger.info("=" * 70)
+    logger.info(f"🟢 SESSION STARTED at {session_start_ist.strftime('%Y-%m-%d %H:%M:%S')} IST")
+    logger.info(f"📄 Session log file: {session_log_path}")
+    logger.info("=" * 70)
+
     API_KEY = api_token
     # Set global variables
     stock_name = stock_name_param
@@ -1772,7 +1797,25 @@ def topgun(trading_symbol_param, symbol_token_param, exchange_param, quantity_pa
         logger.debug(traceback.format_exc())
         return False
     finally:
-        logger.info("📝 Trading session completed.")
+        session_end_ist = get_ist_now()
+        duration_secs = (session_end_ist - session_start_ist).total_seconds()
+        hrs, rem = divmod(int(duration_secs), 3600)
+        mins, secs = divmod(rem, 60)
+        logger.info("=" * 70)
+        logger.info(f"🔴 SESSION STOPPED at {session_end_ist.strftime('%Y-%m-%d %H:%M:%S')} IST")
+        logger.info(f"⏱  Session duration: {hrs:02d}:{mins:02d}:{secs:02d}")
+        logger.info(f"📝 Trading session completed. Log saved to: {session_log_path}")
+        logger.info("=" * 70)
+
+        # Flush + close the per-session file handler so the file is fully written
+        for handler in list(logger.handlers):
+            if isinstance(handler, logging.FileHandler):
+                try:
+                    handler.flush()
+                    handler.close()
+                except Exception:
+                    pass
+                logger.removeHandler(handler)
 
 if __name__ == "__main__":
     import argparse

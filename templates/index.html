@@ -8,25 +8,41 @@
 </head>
 <body>
     <!-- Login Container -->
-    <div class="login-container" id="loginContainer">
-        <h2>Login</h2>
-        <form id="loginForm">
-            <div class="input-group">
-                <label for="loginId">Login ID:</label>
-                <input type="text" id="loginId" name="loginId" required>
+    <div class="login-page" id="loginContainer">
+        <div class="login-card">
+            <div class="login-brand">
+                <div class="login-logo">&#9889;</div>
+                <h1 class="login-title">Thunder Trading</h1>
+                <p class="login-subtitle">Automated Trading Dashboard</p>
             </div>
-            <div class="input-group">
-                <label for="password">Password:</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            <button type="submit" class="login-button">Log In</button>
-        </form>
+            <form id="loginForm" class="login-form">
+                <div class="input-group">
+                    <label for="loginId">Login ID</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">&#128100;</span>
+                        <input type="text" id="loginId" name="loginId" placeholder="Enter your login ID" required>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label for="password">Password</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">&#128274;</span>
+                        <input type="password" id="password" name="password" placeholder="Enter your password" required>
+                    </div>
+                </div>
+                <button type="submit" class="login-button">
+                    <span>Sign In</span>
+                    <span class="login-arrow">&#8594;</span>
+                </button>
+            </form>
+            <p class="login-footer">Powered by Angel One API</p>
+        </div>
     </div>
 
     <!-- Dashboard Container -->
     <div class="dashboard-container" id="dashboardContainer" style="display:none;">
         <header>
-            <h1>Trading Bot Dashboard</h1>
+            <h1>Algo-Trading Agent Dashboard</h1>
         </header>
 
         <!-- API Token Management Section -->

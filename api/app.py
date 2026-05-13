@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, session, render_template, send_from_directory
+from flask import Flask, request, jsonify, session, render_template, send_from_directory, send_file
 import threading
 from api.Final_code_Part_1 import topgun
 from flask_cors import CORS
@@ -6,9 +6,72 @@ import os
 from dotenv import load_dotenv
 import time
 import json
+import logging
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+SCRIP_MASTER_URL = 'https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json'
+SCRIP_MASTER_CACHE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'static',
+    'OpenAPIScripMaster.json',
+)
+SCRIP_MASTER_TTL_SECONDS = 24 * 60 * 60
+_scrip_master_lock = threading.Lock()
+
+
+def _scrip_master_is_fresh(path: str) -> bool:
+    try:
+        age = time.time() - os.path.getmtime(path)
+        return os.path.getsize(path) > 0 and age < SCRIP_MASTER_TTL_SECONDS
+    except OSError:
+        return False
+
+
+def _refresh_scrip_master_cache() -> None:
+    """Download the scrip master to a temp file and atomically replace the cache."""
+    session = requests.Session()
+    retry_strategy = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    session.mount("https://", HTTPAdapter(max_retries=retry_strategy))
+
+    os.makedirs(os.path.dirname(SCRIP_MASTER_CACHE_PATH), exist_ok=True)
+    tmp_path = SCRIP_MASTER_CACHE_PATH + '.tmp'
+
+    with session.get(SCRIP_MASTER_URL, timeout=(10, 120), stream=True) as response:
+        response.raise_for_status()
+        with open(tmp_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=1 << 16):
+                if chunk:
+                    f.write(chunk)
+
+    with open(tmp_path, 'rb') as f:
+        head = f.read(1).lstrip()
+    if head not in (b'[', b'{'):
+        os.remove(tmp_path)
+        raise ValueError("Upstream scrip master response was not JSON")
+
+    os.replace(tmp_path, SCRIP_MASTER_CACHE_PATH)
+
+
+def _ensure_scrip_master_cache() -> str:
+    """Return a path to a fresh cached scrip master, refreshing if needed."""
+    if _scrip_master_is_fresh(SCRIP_MASTER_CACHE_PATH):
+        return SCRIP_MASTER_CACHE_PATH
+
+    with _scrip_master_lock:
+        if _scrip_master_is_fresh(SCRIP_MASTER_CACHE_PATH):
+            return SCRIP_MASTER_CACHE_PATH
+        try:
+            _refresh_scrip_master_cache()
+        except Exception:
+            if os.path.exists(SCRIP_MASTER_CACHE_PATH):
+                logging.getLogger(__name__).exception(
+                    "Scrip master refresh failed; serving stale cache"
+                )
+                return SCRIP_MASTER_CACHE_PATH
+            raise
+    return SCRIP_MASTER_CACHE_PATH
 
 load_dotenv()
 
@@ -22,9 +85,8 @@ stop_event = threading.Event()
 trading_active = False
 last_trading_config = None  # Store last used trading configuration
 
-# Dummy credentials
-USERNAME = "topgun"
-PASSWORD = "maverick"
+USERNAME = os.getenv("USERNAME", "topgun")
+PASSWORD = os.getenv("PASSWORD", "maverick")
 
 # Store API keys temporarily in memory
 #api_keys = {}
@@ -242,33 +304,20 @@ def stop_trading():
 
 @app.route('/get_stock_data')
 def get_stock_data():
-    """Fetch stock data directly from Angel Broking's API"""
-    # Create a session with retry strategy
-    session = requests.Session()
-    retry_strategy = Retry(
-        total=3,
-        backoff_factor=1,
-        status_forcelist=[500, 502, 503, 504]
-    )
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session.mount("https://", adapter)
-    
+    """Serve the Angel Broking scrip master from a disk cache, refreshed daily."""
     try:
-        # Fetch data from Angel Broking's API
-        response = session.get(
-            'https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json',
-            timeout=10
-        )
-        response.raise_for_status()  # Raise an exception for bad status codes
-        
-        # Parse and return the JSON data
-        stock_data = response.json()
-        return jsonify(stock_data)
-        
+        path = _ensure_scrip_master_cache()
     except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Error fetching stock data: {str(e)}"}), 500
+        return jsonify({"error": f"Error fetching stock data: {str(e)}"}), 502
     except Exception as e:
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+    return send_file(
+        path,
+        mimetype='application/json',
+        conditional=True,
+        max_age=3600,
+    )
 
 @app.route("/trading_status", methods=["GET"])
 def trading_status():
